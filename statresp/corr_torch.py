@@ -1,11 +1,5 @@
 """
 Pairwise similarity metrics for xarray dF/F data with PyTorch.
-
-NaN handling differs from ``statresp.corr``: the ``*_corr_matrix`` functions
-drop NaN samples *listwise* (a sample is dropped for every cell if it is NaN
-for any cell), so all pairs share the same samples.  ``statresp.corr`` drops
-NaNs *pairwise*, using every sample valid for both cells of a pair.  Results
-therefore match only when the data contain no NaNs.
 """
 
 from __future__ import annotations
