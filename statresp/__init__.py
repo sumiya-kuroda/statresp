@@ -1,46 +1,17 @@
-"""statresp — dF/F responsiveness and selectivity metrics for calcium imaging.
-
-Python 3.12 port of the analysis code from:
-
-    Znamenskiy et al. (2024). Functional specificity of recurrent inhibition
-    in visual cortex. *Neuron* 112(6): 991–1000.
-    https://doi.org/10.1016/j.neuron.2024.01.008
-
-Quickstart (xarray / NWB / pynapple)
--------------------------------------
-.. code-block:: python
-
-    import statresp.metrics as m
-    import statresp.corr as corr
-
-    r2  = m.response_rsq(f, cond_coords="direction", window=(0.0, 2.0))
-    sp  = m.selectivity(f, window=(0.0, 2.0))
-    sim = corr.cosangle(f1, f2, window=(0.0, 2.0))
-    r, p = corr.signal_corr(f1, f2, window=(0.0, 2.0))
-    r, p = corr.noise_corr(f1, f2, window=(0.0, 2.0))
-    r, p = corr.trial_corr(f1, f2, window=(0.0, 2.0))
-"""
-
 from __future__ import annotations
-
 from typing import Sequence
 
 import numpy as np
 import xarray as xr
 
-# ---------------------------------------------------------------------------
-# Internal helpers shared by statresp.metrics and statresp.corr
-# ---------------------------------------------------------------------------
-
 _DEFAULT_COND = ["direction", "sf", "tf"]
-
 
 def _slice(f: xr.DataArray, window: tuple[float, float] | None,
            time_dim: str = "time") -> xr.DataArray:
     if window is None:
         return f
     t = f[time_dim].values
-    return f.isel({time_dim: (t >= window[0]) & (t <= window[1])})
+    return f.isel({time_dim: (t >= window[0]) & (t < window[1])})
 
 
 def _labels(f: xr.DataArray, cond_coords: str | Sequence[str],
@@ -79,9 +50,46 @@ def _rsq_from_labels(data: np.ndarray, labels: np.ndarray) -> float:
     return float((total_var - np.nanvar(res)) / total_var)
 
 
+def _cond_avg_all(
+    cube: xr.DataArray,
+    window: tuple[float, float] | None,
+    cond_coords: str | Sequence[str],
+    trial_dim: str,
+    time_dim: str,
+    cell_dim: str,
+) -> np.ndarray:
+    """Condition-averaged responses per cell, shape (n_cell, n_conditions * n_time)."""
+    fw = _slice(cube, window, time_dim)
+    labels = _labels(fw, cond_coords, trial_dim)
+    das = [
+        fw.isel({trial_dim: labels == c}).mean(trial_dim, skipna=True)
+        for c in np.unique(labels)
+    ]
+    avg = xr.concat(das, dim="condition").transpose(cell_dim, "condition", time_dim)
+    return avg.values.reshape(avg.sizes[cell_dim], -1)
+
+
+def _resid_all(
+    cube: xr.DataArray,
+    window: tuple[float, float] | None,
+    cond_coords: str | Sequence[str],
+    trial_dim: str,
+    time_dim: str,
+    cell_dim: str,
+) -> np.ndarray:
+    """Within-condition residuals per cell, shape (n_cell, n_trial * n_time)."""
+    fw = _slice(cube, window, time_dim).transpose(cell_dim, trial_dim, time_dim)
+    labels = _labels(fw, cond_coords, trial_dim)
+    data = fw.values.astype(float)
+    res = data.copy()
+    for c in np.unique(labels):
+        m = labels == c
+        res[:, m, :] -= np.nanmean(data[:, m, :], axis=1, keepdims=True)
+    return res.reshape(res.shape[0], -1)
+
 from statresp import metrics
-from statresp import corr
+from statresp import corr_torch
 from statresp.fit_tuning import fit_tuning, TuningFit
 
-__all__ = ["metrics", "corr", "fit_tuning", "TuningFit"]
+__all__ = ["metrics", "corr_torch", "fit_tuning", "TuningFit"]
 __version__ = "0.1.0"
