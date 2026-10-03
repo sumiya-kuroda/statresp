@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Bio-Informatics",
 ]
 dependencies = [
-    "numpy>=2.0",
+    "numpy<2.3",
     "scipy>=1.13",
     "xarray>=2024.1",
     "torch>=2.0",
