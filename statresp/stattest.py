@@ -8,10 +8,10 @@ from typing import Sequence
 
 import numpy as np
 import xarray as xr
-from scipy.stats import ks_2samp, false_discovery_control
+from scipy.stats import f_oneway, ks_2samp, false_discovery_control
 from zetapy import zetatstest, zetatstest2
 
-from statresp import _slice
+from statresp import _DEFAULT_COND, _labels, _slice
 
 SEED = 2026
 np.random.seed(SEED)
@@ -115,6 +115,39 @@ def perm_test(
         hits = np.abs(null) >= abs(obs)
     p = (1.0 + np.sum(hits)) / (n_perm + 1.0)
     return float(obs), float(p), null
+
+
+def anova_test(
+    f: xr.DataArray,
+    cond_coords: str | Sequence[str] | None = None,
+    window: tuple[float, float] | None = None,
+    trial_dim: str = "trial",
+    time_dim: str = "time",
+) -> tuple[float, float] | tuple[np.ndarray, np.ndarray]:
+    """One-way ANOVA on per-trial mean dF/F across stimulus conditions (F, p).
+
+    Averages each trial over *window*, groups trials by the unique
+    combinations of `cond_coords` (default direction, SF, TF; same grouping
+    as `response_rsq`) and runs `scipy.stats.f_oneway`. Tests whether the
+    response differs across conditions, not whether it exceeds baseline.
+
+    `f` is (trial, time) for one cell, returning floats, or has extra dims
+    (e.g. (ucid, trial, time)), returning F and p arrays over those dims;
+    the test runs vectorized over them. NaN trials give NaN for that cell.
+    """
+    if cond_coords is None:
+        cond_coords = _DEFAULT_COND
+    fw = _slice(f, window, time_dim)
+    trial_means = fw.mean(dim=time_dim)
+    labels = _labels(trial_means, cond_coords, trial_dim)
+    data = trial_means.transpose(..., trial_dim).values.astype(float)
+    groups = [data[..., labels == c] for c in np.unique(labels)]
+    if len(groups) < 2:
+        raise ValueError(f"need >= 2 conditions, got {len(groups)}")
+    F, p = f_oneway(*groups, axis=-1)
+    if data.ndim == 1:
+        return float(F), float(p)
+    return np.asarray(F), np.asarray(p)
 
 
 def circperm_test(
